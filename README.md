@@ -21,4 +21,6 @@ python3 build_playlist.py
 ```
 
 Note: the channel stream URLs themselves are plain HTTP (the provider has no
-HTTPS port). Only the playlist file is served over HTTPS.
+HTTPS port). Only the playlist file is served over HTTPS. If the app loads the
+channel list but playback of HTTP streams fails, deploy the HTTPS relay in
+[`worker/`](worker/README.md) and use its `/playlist-hls.m3u` URL instead.

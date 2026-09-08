@@ -1,0 +1,15 @@
+name = "iptv-proxy"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[vars]
+# HTTP-only Xtream Codes panel host (no scheme).
+PROVIDER_HOST = "till41909.wd.business-cloud-4.ru"
+# Where the generated playlists live (raw GitHub). The worker rewrites the
+# stream URLs in them to go through itself.
+PLAYLIST_BASE = "https://raw.githubusercontent.com/kirolos-Rezkalla/iptv-playlist/main"
+# Used to HMAC-sign the /e/ segment URLs the worker emits, so /e/ cannot be
+# used as an open proxy. Change it; or better, move it to a secret:
+#   npx wrangler secret put PROXY_SECRET   (and delete this line)
+PROXY_SECRET = "0f3c9a7e51b24d8ea6c1f0b9d2e47a35"
