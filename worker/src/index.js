@@ -45,7 +45,8 @@ export default {
     if (gen) {
       let cfg;
       try { cfg = parseConfig(gen[1]); } catch (e) { return text(`bad link: ${e.message}`, 400); }
-      return cachedPlaylist(request, ctx, () => generatePlaylist(cfg, self, env));
+      const res = await cachedPlaylist(request, ctx, () => generatePlaylist(cfg, self, env));
+      return applyRange(request, res);
     }
 
     if (url.pathname.startsWith("/e/")) {
@@ -130,25 +131,85 @@ async function cachedPlaylist(request, ctx, produce) {
   return res;
 }
 
+/**
+ * Honour a single `Range: bytes=a-b` on a complete 200 response, the way a
+ * static file host does. Some players probe a URL with a Range request before
+ * deciding what it is; answering like raw.githubusercontent.com keeps them happy.
+ */
+async function applyRange(request, res) {
+  const range = request.headers.get("range");
+  if (!range || res.status !== 200) return res;
+  const m = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || (m[1] === "" && m[2] === "")) return res;
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const size = buf.byteLength;
+  let start, end;
+  if (m[1] === "") { start = Math.max(0, size - Number(m[2])); end = size - 1; }
+  else { start = Number(m[1]); end = m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1); }
+  const headers = new Headers(res.headers);
+  headers.set("accept-ranges", "bytes");
+  if (start >= size || start > end) {
+    headers.set("content-range", `bytes */${size}`);
+    headers.delete("content-length");
+    return new Response(null, { status: 416, headers });
+  }
+  headers.set("content-range", `bytes ${start}-${end}/${size}`);
+  headers.set("content-length", String(end - start + 1));
+  return new Response(request.method === "HEAD" ? null : buf.subarray(start, end + 1), { status: 206, headers });
+}
+
 async function generatePlaylist(cfg, self, env) {
   let source;
   try {
-    source = cfg.xtream ? await buildXtreamPlaylist(cfg.xtream, cfg.hls) : await fetchSourcePlaylist(cfg.source);
+    source = cfg.xtream ? await buildXtreamPlaylist(cfg.xtream, cfg.hls) : await loadM3uSource(cfg);
   } catch (e) {
     return text(`could not load source playlist: ${e.message}`, 502);
   }
-  if (!source.trimStart().startsWith("#EXTM3U")) {
-    return text("source does not look like an M3U playlist (no #EXTM3U header)", 502);
-  }
   const body = await rewritePlaylist(source, self, env, { hls: cfg.hls });
+  // Served as text/plain, like raw.githubusercontent.com does. Some players
+  // (CarTv) take an mpegurl content-type to mean "this is a media stream" and
+  // refuse the URL as a channel list.
   return new Response(body, {
     headers: {
-      "content-type": "application/x-mpegurl; charset=utf-8",
-      "content-disposition": 'inline; filename="playlist.m3u"',
+      "content-type": "text/plain; charset=utf-8",
+      "accept-ranges": "bytes",
       "cache-control": `public, max-age=${PLAYLIST_TTL}`,
       "access-control-allow-origin": "*",
     },
   });
+}
+
+/**
+ * Load an M3U from its URL. Many Xtream Codes panels refuse get.php (this
+ * provider answers HTTP 884 with an empty body) while player_api.php works, so
+ * if the URL is a get.php link carrying username and password and the fetch
+ * fails or does not return an M3U, build the playlist from the API instead.
+ */
+async function loadM3uSource(cfg) {
+  let m3uError;
+  try {
+    const source = await fetchSourcePlaylist(cfg.source);
+    if (source.trimStart().startsWith("#EXTM3U")) return source;
+    m3uError = new Error("source does not look like an M3U playlist (no #EXTM3U header)");
+  } catch (e) {
+    m3uError = e;
+  }
+  const xt = xtreamFromM3uUrl(cfg.source);
+  if (!xt) throw m3uError;
+  try {
+    return await buildXtreamPlaylist(xt, cfg.hls);
+  } catch (e) {
+    throw new Error(`${m3uError.message}; also tried the Xtream API: ${e.message}`);
+  }
+}
+
+/** get.php?username=..&password=.. -> Xtream credentials, or null if the URL is not one. */
+export function xtreamFromM3uUrl(url) {
+  if (!/\/get\.php$/i.test(url.pathname)) return null;
+  const user = url.searchParams.get("username");
+  const pass = url.searchParams.get("password");
+  if (!user || !pass) return null;
+  return { origin: url.origin, user, pass };
 }
 
 async function fetchSourcePlaylist(url) {

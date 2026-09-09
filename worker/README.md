@@ -14,7 +14,7 @@ playlist is regenerated from the provider on demand (cached for 5 minutes).
 | Route | What it does |
 |---|---|
 | `/` | Landing page with the form. Builds the link client-side and does a quick fetch to confirm the playlist loads. |
-| `/l/<cfg>/playlist.m3u` | The generated playlist. `<cfg>` is base64url JSON: `{"u":"<m3u url>"}` for an M3U source or `{"x":["<host>","<user>","<pass>"]}` for Xtream (built from `player_api.php`, same as `build_playlist.py`). Add `"h":1` to convert `.ts` stream URLs to `.m3u8`. |
+| `/l/<cfg>/playlist.m3u` | The generated playlist. `<cfg>` is base64url JSON: `{"u":"<m3u url>"}` for an M3U source or `{"x":["<host>","<user>","<pass>"]}` for Xtream (built from `player_api.php`, same as `build_playlist.py`). Add `"h":1` to convert `.ts` stream URLs to `.m3u8`. If an M3U URL is a `get.php?username=…&password=…` link and the provider refuses it (some panels answer HTTP 884 with an empty body) or returns something that is not an M3U, the worker falls back to building the playlist from `player_api.php` with those credentials. |
 | `/e/<host>/<path>?sig=…` | Relays `http://<host>/<path>`: follows the provider's 302 to its edge servers, rewrites `.m3u8` bodies so segments and keys also go through the worker, streams everything else through untouched. |
 | `/playlist.m3u`, `/playlist-hls.m3u` | Legacy: 302 to the generated link for `PLAYLIST_BASE + name`, if `PLAYLIST_BASE` is set. |
 

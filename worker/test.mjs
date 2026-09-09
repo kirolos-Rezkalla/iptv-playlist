@@ -24,6 +24,8 @@ const server = http.createServer((req, res) => {
   requests.push(`${req.headers.host}${req.url}`);
   const u = new URL(req.url, "http://x");
   if (u.pathname === "/list.m3u") return res.end(M3U);
+  if (u.pathname === "/get.php") return res.writeHead(884).end(); // Xtream panels that refuse get.php
+  if (u.pathname === "/html/get.php") return res.end("<html>login</html>");
   if (u.pathname === "/live/u/p/1.m3u8") return res.writeHead(302, { location: "http://edge.test/hls/1/index.m3u8" }).end();
   if (u.pathname === "/hls/1/index.m3u8") return res.writeHead(200, { "content-type": "application/vnd.apple.mpegurl" }).end(HLS);
   if (u.pathname === "/hls/1/seg1.ts") return res.writeHead(200, { "content-type": "video/mp2t" }).end(Buffer.from([0x47, 1, 2, 3]));
@@ -94,6 +96,19 @@ assert.equal(lines[6].split("sig=")[1], sig, "same host => same signature");
 const before = requests.length;
 r = await call(linkPath({ u: "http://provider.test/list.m3u" }));
 assert.equal(await r.text(), body); assert.equal(requests.length, before, "served from cache");
+assert.equal(r.headers.get("content-type"), "text/plain; charset=utf-8", "served like a static file, not as a media type");
+assert.equal(r.headers.get("accept-ranges"), "bytes");
+
+// range requests behave like a static file host
+r = await call(linkPath({ u: "http://provider.test/list.m3u" }), { headers: { range: "bytes=0-6" } });
+assert.equal(r.status, 206);
+assert.equal(await r.text(), "#EXTM3U");
+assert.equal(r.headers.get("content-range"), `bytes 0-6/${Buffer.byteLength(body)}`);
+assert.equal(r.headers.get("content-length"), "7");
+r = await call(linkPath({ u: "http://provider.test/list.m3u" }), { headers: { range: "bytes=999999-" } });
+assert.equal(r.status, 416);
+r = await call(linkPath({ u: "http://provider.test/list.m3u" }), { method: "HEAD" });
+assert.equal(r.status, 200); assert.equal(r.headers.get("content-type"), "text/plain; charset=utf-8"); // workerd drops the body for HEAD
 
 // hls conversion
 r = await call(linkPath({ u: "http://provider.test/list.m3u", h: 1 }));
@@ -136,6 +151,24 @@ assert.equal(xl[3], `#EXTINF:-1 tvg-id="b.id" tvg-name="B" tvg-logo="" group-tit
 // xtream bad credentials -> readable error
 r = await call(linkPath({ x: ["provider.test", "usr", "wrong"] }));
 assert.equal(r.status, 502); assert.match(await r.text(), /bad credentials/);
+
+// m3u url is a get.php that the provider refuses -> fall back to the Xtream API with the same credentials
+r = await call(linkPath({ u: "http://provider.test/get.php?username=usr&password=pw&type=m3u_plus&output=ts", h: 1 }));
+assert.equal(r.status, 200, await r.clone().text());
+body = await r.text();
+assert.equal(body.trim().split("\n").length, 5);
+assert.match(body, /\/e\/provider\.test\/live\/usr\/pw\/11\.m3u8\?sig=/, "built from player_api with get.php's credentials");
+// get.php returns something that is not an M3U -> same fallback
+r = await call(linkPath({ u: "http://provider.test/html/get.php?username=usr&password=pw" }));
+assert.equal(r.status, 200, await r.clone().text());
+assert.match(await r.text(), /\/live\/usr\/pw\/11\.ts\?sig=/);
+// fallback with wrong credentials reports both failures
+r = await call(linkPath({ u: "http://provider.test/get.php?username=usr&password=nope" }));
+assert.equal(r.status, 502);
+assert.match(await r.text(), /HTTP 884.*also tried the Xtream API.*bad credentials/);
+// a get.php url without credentials does not fall back
+r = await call(linkPath({ u: "http://provider.test/get.php?type=m3u" }));
+assert.equal(r.status, 502); assert.doesNotMatch(await r.text(), /Xtream/);
 
 // bad links
 assert.equal((await call("/l/!!!/playlist.m3u")).status, 404);

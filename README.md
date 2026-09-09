@@ -6,6 +6,7 @@ Tools for using an HTTP-only IPTV subscription in players that require HTTPS
 ## The service: `worker/`
 
 A Cloudflare Worker that turns any plain-HTTP IPTV playlist into an HTTPS link.
+Live at **https://iptv-proxy.stream-relay.workers.dev/**.
 Open the worker's page, paste an M3U URL (or Xtream Codes server, username and
 password), tick "convert to HLS" for iOS, and copy the generated link into the
 player. The worker serves the playlist over HTTPS and relays the streams
