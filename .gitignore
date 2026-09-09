@@ -3,3 +3,5 @@ worker/node_modules/
 worker/.dev.vars
 *.json
 !worker/package.json
+.env
+!worker/package-lock.json

@@ -1,14 +1,34 @@
 name = "iptv-proxy"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+
+# Static files (screenshots on the landing page). Served directly; anything not
+# found here falls through to the worker.
+[assets]
+directory = "./public"
 
 # Required secret (not a var): signs the /e/ stream-relay URLs the worker emits so
 # the relay only serves hosts that appeared in a generated playlist.
 #   npx wrangler secret put PROXY_SECRET      # any long random string
 # For `wrangler dev`, put PROXY_SECRET=... in worker/.dev.vars (gitignored).
 
+# Storage (optional): link submissions and purchases go to DigitalOcean PostgreSQL
+# through Hyperdrive (Workers cannot verify DigitalOcean's private CA directly).
+# Created once with: npx wrangler hyperdrive create iptv-db --connection-string="$(node db/url.mjs)"
+# See db/schema.sql and db/setup.mjs.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "234c64899e134948a35603c5f7282552"
+
+# Paywall (Stripe). Also: npx wrangler secret put STRIPE_SECRET_KEY   (sk_live_… / sk_test_…)
+# Set PAYWALL = "1" once STRIPE_SECRET_KEY and STRIPE_PRICE_ID are in place.
+
 [vars]
+PAYWALL = "1"
+ACCESS_DAYS = "30"
+STRIPE_PRICE_ID = "price_1UDsq2KDp0zK3kl4ZqZq6s7X"   # live-mode price, USD 5.00 one-time (test mode: price_1UDglJGeJiXLgpfmmkaNtbcG)
 # Optional. If set, the old /playlist.m3u and /playlist-hls.m3u routes redirect to
 # generated links for PLAYLIST_BASE + that filename.
 PLAYLIST_BASE = "https://raw.githubusercontent.com/kirolos-Rezkalla/iptv-playlist/main"
