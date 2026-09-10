@@ -5,17 +5,23 @@ import pg from "pg";
 import { existsSync, readFileSync } from "node:fs";
 
 function client() {
-  if (process.env.DATABASE_URL) return new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  if (process.env.DATABASE_URL) return new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15_000 });
   const envPath = new URL("../../.env", import.meta.url);
   if (!existsSync(envPath)) throw new Error("set DATABASE_URL or provide ../.env");
   const env = Object.fromEntries(readFileSync(envPath, "utf8").split("\n")
     .map((l) => l.match(/^\s*([^#=\s]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map((m) => [m[1], m[2]]));
-  return new pg.Client({ host: env.host, port: Number(env.port), user: env.username, password: env.password, database: env.database, ssl: { rejectUnauthorized: false } });
+  return new pg.Client({ host: env.host, port: Number(env.port), user: env.username, password: env.password, database: env.database, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15_000 });
 }
 
 const minutes = Number(process.argv[2]) || 60;
 const db = client();
-await db.connect();
+try {
+  await db.connect();
+} catch (e) {
+  const host = db.host || "the database host";
+  console.error(`Could not connect to ${host}:${db.port} within 15s (${e.message}). If this runs in a sandbox, its network access must allow that host on port ${db.port}.`);
+  process.exit(2);
+}
 const one = async (sql, params) => (await db.query(sql, params)).rows[0];
 
 const ev = await one(`
